@@ -1,11 +1,18 @@
 package com.hampus.scraper;
 
 import io.appium.java_client.android.nativekey.AndroidKey;
+import org.apache.tools.ant.taskdefs.Echo;
 import org.openqa.selenium.remote.DesiredCapabilities;
 
+import java.io.*;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.text.NumberFormat;
+import java.text.ParseException;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import io.appium.java_client.MobileElement;
 import io.appium.java_client.TouchAction;
@@ -21,17 +28,21 @@ public class UScraper {
     private String[] navSearch = {"//android.widget.Button[@content-desc=\"Search and Explore\"]", "XPath"};
     private String[] inputSearch = {"/hierarchy/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.FrameLayout/android.widget.FrameLayout[2]/android.widget.FrameLayout[2]/android.widget.FrameLayout[2]/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.FrameLayout/android.widget.EditText", "XPath"};
     private String[] searchTagButton = {"/hierarchy/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.FrameLayout/android.widget.FrameLayout[2]/android.widget.FrameLayout[2]/android.widget.FrameLayout[1]/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout[3]", "XPath"};
+    private String[] recentPostsButton = {"//android.widget.TextView[@content-desc=\"Recent\"]", "XPath"};
+    private String[] postUsername = {"com.instagram.android:id/row_feed_photo_profile_name", "Id"};
     private String[] emailButton = {"/hierarchy/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.FrameLayout/android.widget.FrameLayout[2]/android.widget.FrameLayout[2]/android.widget.FrameLayout[1]/android.view.ViewGroup/android.widget.LinearLayout/android.widget.LinearLayout/android.widget.LinearLayout[1]/android.widget.LinearLayout[1]/android.widget.LinearLayout/android.widget.Button[3]", "XPath"};
     private String[] callButton = {""};
     private String[] contactButton = {"/hierarchy/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.FrameLayout/android.widget.FrameLayout[2]/android.widget.FrameLayout[1]/android.widget.FrameLayout[1]/android.view.ViewGroup/android.widget.LinearLayout/android.widget.LinearLayout/android.widget.LinearLayout[1]/android.widget.LinearLayout[1]/android.widget.LinearLayout/android.widget.Button[3]", "XPath"};
     private String[] contactNestedCall = {"\"/hierarchy/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.FrameLayout/android.widget.FrameLayout[2]/android.widget.FrameLayout[2]/android.widget.FrameLayout/android.widget.FrameLayout/android.view.ViewGroup/android.widget.FrameLayout/androidx.recyclerview.widget.RecyclerView/android.widget.LinearLayout[1]/android.widget.TextView[2]", "XPath"};
-    private String[] contactNestedEmail = {"\"/hierarchy/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.LinearLayout/android.widget.FrameLayout/android.widget.FrameLayout/android.widget.FrameLayout[2]/android.widget.FrameLayout[2]/android.widget.FrameLayout/android.widget.FrameLayout/android.view.ViewGroup/android.widget.FrameLayout/androidx.recyclerview.widget.RecyclerView/android.widget.LinearLayout[2]/android.widget.TextView[2]", "XPath"};
+    private String[] contactNestedEmail = {"com.instagram.android:id/contact_option_sub_text", "Id"};
     private String[] userFullname = {"com.instagram.android:id/profile_header_full_name", "Id"};
     private String[] userBio = {"com.instagram.android:id/profile_header_bio_text", "Id"};
     private String[] userCalltag = {"com.instagram.android:id/action_bar_title", "Id"};
     private String[] userFollowers = {"com.instagram.android:id/row_profile_header_textview_followers_count", "Id"};
     private String[] userFollowing = {"com.instagram.android:id/row_profile_header_textview_following_count", "Id"};
     private String[] businessCategory = {"com.instagram.android:id/profile_header_business_category", "Id"};
+    private String[] androidEmail = {"com.google.android.gm:id/to", "Id"};
+    private String[] androidNumber = {"com.android.dialer:id/digits", "Id"};
 
     private AndroidDriver driver;
 
@@ -76,38 +87,65 @@ public class UScraper {
 
     }
 
+    public void exportUserCredentials(String prefix, int ID, String calltag, int followers, int following, boolean is_business, String email) {
+
+        System.out.println("Exporting credentials");
+        try (FileWriter writer = new FileWriter(("exported_hashtag.csv"), true)) {
+
+
+            StringBuilder sb = new StringBuilder();
+            sb.append('\n');
+
+            sb.append(calltag);
+            sb.append(',');
+            sb.append(followers);
+            sb.append(',');
+            sb.append(email);
+            sb.append(',');
+            sb.append(is_business);
+
+            writer.write(sb.toString());
+
+            System.out.println("done!");
+
+        } catch (FileNotFoundException e) {
+            System.out.println(e.getMessage());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+    }
+
     // TODO
     public void userSearch(String username) {
 
     }
 
-    public void emailAndNumberSearch(String h_tag, int max_query, int query_rate, int max_followers, int min_followers,
-                                     int min_posts, int random_tick_speed, boolean recent_posts) throws InterruptedException {
+    public void emailAndNumberSearch(String prefix, String h_tag, int max_query, int query_rate, int max_followers, int min_followers,
+                                     int min_posts, int random_tick_speed, boolean recent_posts) throws InterruptedException, ParseException {
         boolean SCRAPE_STOP = false;
         int column = 1;
         int row = 1;
+        int postCount = 0, following = 0, followers = 0;
         long startTime = System.nanoTime();
         long lastUpdateTime = System.nanoTime();
+        String userEmail = "", userBioEmail = "", calltag = "";
 
         boolean firstRun = true;
+        boolean userEmailFound = false, bioEmailFound = false, contactFound = false, emailFound = false;
+        boolean businessAcc = false;
 
-        // Scrape loop
-        while (RESET_SCRAPER_TIME > (startTime - lastUpdateTime) && !SCRAPE_STOP) {
-            lastUpdateTime = System.nanoTime();
-            TimeUnit.SECONDS.sleep(2);
-
-            // Begin by pressing the search button
-
+        // Begin by pressing the search button
+        while (!SCRAPE_STOP) {
             // set the clipboard to the hashtag, and paste it
             if (firstRun) {
                 firstRun = false;
                 getElement(navSearch).click();
-                TimeUnit.SECONDS.sleep(2);
+                Thread.sleep(1000);
 
                 getElement(inputSearch).click();
                 driver.hideKeyboard();
 
-                TimeUnit.SECONDS.sleep(2);
                 getElement(searchTagButton).click();
 
                 if (h_tag.contains("#"))
@@ -115,12 +153,159 @@ public class UScraper {
                 else
                     getElement(inputSearch).sendKeys("#" + h_tag);
 
+                Thread.sleep(3000);
                 var searchResults = driver.findElementsByClassName("android.widget.TextView");
-                for (var el : searchResults)
-                    if (((MobileElement) el).getText().equals("#" + h_tag) || ((MobileElement) el).getText().equals(h_tag))
+                for (var el : searchResults) {
+                    if (((MobileElement) el).getText().equals("#" + h_tag) || ((MobileElement) el).getText().equals(h_tag)) {
                         ((MobileElement) el).click();
+                        break;
+                    }
+                }
 
+                Thread.sleep(6000);
+                getElement(recentPostsButton).click();
             }
+
+            // Decide which picture to click on
+            while (postCount < max_query) {
+                emailFound = false;
+                bioEmailFound = false;
+                contactFound = false;
+                businessAcc = false;
+
+                Thread.sleep(2000);
+                var postsUnderHashtag = driver.findElementsById("com.instagram.android:id/image_button");
+
+                MobileElement post = (MobileElement) postsUnderHashtag.get(postCount);
+                String postAccessID = post.getAttribute("content-desc");
+
+                Thread.sleep(2000);
+                if (row % 2 == 0) {
+                    System.out.println("[Action] Scrolling...");
+                    (new TouchAction(driver)).press(PointOption.point(544, 544)).moveTo(PointOption.point(544, 80)).perform();
+                }
+
+
+                Thread.sleep(2000);
+                if (postAccessID.contains("Row " + row) && postAccessID.contains("Column " + column)) {
+                    System.out.printf("\n[Action] Clicking image number %s on row %s \n", column, row);
+                    post.click();
+                    if (column == 3) {
+                        column = 1;
+                        row++;
+                    } else
+                        column++;
+
+                    Thread.sleep(500);
+                    getElement(postUsername).click();
+
+                    Thread.sleep(500);
+                    calltag = getElement(userCalltag).getText();
+
+                    Thread.sleep(500);
+                    followers = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowers).getText()).intValue();
+                    Thread.sleep(500);
+                    following = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowing).getText()).intValue();
+
+                    Thread.sleep(2000);
+                    MobileElement bio = null;
+                    try {
+                        if (getElement(contactButton).getText().equals("Contact")) {
+                            getElement(contactButton).click();
+                            contactFound = true;
+
+                            // Fixes TODO
+                            // It always click the down array (recommended accounts)
+                            // Doesn't fetch the email from contact nest
+
+                            System.out.println("In contact nest");
+
+                            Thread.sleep(1000);
+                            try {
+                                MobileElement nestedEmail = getElement(contactNestedEmail);
+                                System.out.println(nestedEmail);
+                                emailFound = true;
+                                businessAcc = true;
+                                userEmail = nestedEmail.getText();
+                                System.out.printf("[Info] Email found in contact (%s): %s\n", calltag, userEmail);
+                            } catch (Exception e) {
+                                System.out.println("Failed to go into nest");
+                                emailFound = false;
+                            }
+
+                            Thread.sleep(2000);
+                            driver.navigate().back();
+                        } else
+                            continue;
+                    } catch (Exception e) {
+                        System.out.println("Failed to go into contact nest");
+                        contactFound = false;
+                    }
+
+                    if (!contactFound) {
+                        try {
+                            getElement(emailButton).click();
+                            Thread.sleep(1000);
+                            userEmail = getElement(androidEmail).getText();
+                            userEmail = userEmail.replace("<", "");
+                            userEmail = userEmail.replace(">", "");
+                            emailFound = true;
+                            businessAcc = true;
+
+                            System.out.printf("[Info] Email found in contact(%s): %s\n", calltag, userEmail);
+
+                            Thread.sleep(1000);
+                            driver.hideKeyboard();
+                            driver.navigate().back();
+                        } catch (Exception e) {
+                            emailFound = false;
+                        }
+                    }
+
+                    Thread.sleep(1000);
+                    try {
+                        bio = getElement(userBio);
+
+                        System.out.println("[Info] Bio found");
+                        if (bio.getText().contains("… more") || bio.getText().contains("... more")) {
+                            TouchAction bioAction = new TouchAction(driver);
+                            System.out.printf("[Action] Pressing coordinates %s, %s\n", bio.getRect().x, bio.getRect().y);
+                            bioAction.press(PointOption.point(bio.getLocation().x, bio.getLocation().y));
+                            bioAction.release().perform();
+                        }
+
+                        Thread.sleep(500);
+                        Pattern EMAIL_PATTERN = Pattern.compile("[_A-Za-z0-9-]+(\\\\.[_A-Za-z0-9-]+)*@[A-Za-z0-9]+(\\\\.[A-Za-z0-9]+)*(\\\\.[A-Za-z]{2,})");
+                        Matcher m = EMAIL_PATTERN.matcher(bio.getText());
+                        if (m.find()) {
+                            String match = m.group(1);
+                            userBioEmail = match;
+                            emailFound = true;
+                            System.out.printf("[Info] Email found in bio (%s): %s\n", calltag, userBioEmail);
+                        } else {
+                            System.out.println("[Warning] No email in bio found");
+                        }
+                    } catch (Exception e) {
+                        System.out.println("[Warning] No bio found");
+                    }
+
+                    if (bioEmailFound || emailFound) {
+                        exportUserCredentials(prefix, postCount, calltag, followers, following, businessAcc, userEmail.isEmpty() ? userBioEmail : userEmail);
+                        Thread.sleep(1000);
+                    }
+                    else
+                        System.out.println("[Warning] No email found");
+
+                    // Back to hashtag posts
+                    driver.navigate().back();
+                    driver.navigate().back();
+                    postCount++;
+                }
+            }
+
+            // Max Query Reached
+            System.out.println("[Info] Bot stopped, max query reached");
+            SCRAPE_STOP = true;
         }
 
         // resetScraper(); here we can check if to continue or close
@@ -153,7 +338,7 @@ public class UScraper {
         // if first post
     }
 
-    public static void main(String args[]) throws MalformedURLException, InterruptedException {
+    public static void main(String args[]) throws MalformedURLException, InterruptedException, ParseException {
 
         System.out.println("### BOT RUNNING... ###");
 
@@ -189,7 +374,7 @@ public class UScraper {
             }
         }
 
-        scraper.emailAndNumberSearch("camping", 1000, 2, 20000, 100, 3, 6, true);
+        scraper.emailAndNumberSearch("A", "camping", 1000, 2, 20000, 100, 3, 6, true);
 
     }
 }
