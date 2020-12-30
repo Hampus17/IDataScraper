@@ -1,9 +1,6 @@
 package com.hampus.scraper;
 
-import io.appium.java_client.MultiTouchAction;
-import io.appium.java_client.android.nativekey.AndroidKey;
 import io.appium.java_client.touch.WaitOptions;
-import org.apache.tools.ant.taskdefs.Echo;
 import org.openqa.selenium.remote.DesiredCapabilities;
 
 import java.io.*;
@@ -14,7 +11,6 @@ import java.text.ParseException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,7 +19,6 @@ import io.appium.java_client.TouchAction;
 import io.appium.java_client.android.AndroidDriver;
 import io.appium.java_client.touch.offset.PointOption;
 
-import static java.lang.Integer.parseInt;
 
 public class UScraper {
 
@@ -48,9 +43,13 @@ public class UScraper {
 
     private AndroidDriver driver;
 
-    private int RESET_SCRAPER_TIME = 7200; // 2 hours
+    private int RESET_SCRAPER_TIME = 7200000; // 2 hours (in milliseconds)
 
-    public UScraper(boolean debug) throws MalformedURLException {
+    private boolean SCRAPE_STOP = false;
+    private boolean SCRAPE_RESET = false;
+
+
+    public UScraper() throws MalformedURLException {
         DesiredCapabilities desiredCapabilities = new DesiredCapabilities();
         desiredCapabilities.setCapability("deviceName", "emulator-5554");
         desiredCapabilities.setCapability("platformName", "android");
@@ -85,11 +84,11 @@ public class UScraper {
     }
 
     // TODO after some time create copy of the updating data file from scraper incase error would occur
-    public void backupUserData() {
+    private void backupUserData() {
 
     }
 
-    public void exportUserCredentials(String hashtag, String calltag, int followers, int following, boolean is_business, String email, String number) {
+    private void exportUserCredentials(String hashtag, String calltag, int followers, int following, boolean is_business, String email, String number) {
 
         System.out.println("[Info] Exporting credentials... ");
         try (FileWriter writer = new FileWriter(("exported_hashtag.csv"), true)) {
@@ -133,304 +132,290 @@ public class UScraper {
         System.out.println("\n[Action] Scrolling feed...");
         (new TouchAction(driver)).press(PointOption.point(536, 1875))
                 .waitAction(WaitOptions.waitOptions(Duration.ofMillis(500)))
-                .moveTo(PointOption.point(536, 1336))
+                .moveTo(PointOption.point(536, 1350))
                 .release()
                 .perform();
     }
 
     public void emailAndNumberSearch(String prefix, String h_tag, String countryCode, String numberBeginning, int max_query, int query_rate, int max_followers, int min_followers,
                                      int min_posts, int random_tick_speed, boolean recent_posts) throws InterruptedException, ParseException, IOException {
-        int column = 1;
-        int row = 1;
-        int postCount = 0, following = 0, followers = 0;
 
-        long startTime = System.nanoTime();
-        long lastUpdateTime = System.nanoTime();
-        String userEmail = "", userBioEmail = "", calltag = "", userNumber = "";
-        String feedCurrentUsername = "";
+        System.out.printf("Bot running  |  Search Mode: Hashtag  (%s)  |  Max Query: %s\n\n", h_tag, max_query);
 
-        boolean SCRAPE_STOP = false;
-        boolean firstRun = true;
-        boolean resetRun = false;
-        boolean userEmailFound = false, bioEmailFound = false, contactFound = false, emailFound = false, numberFound = false;
-        boolean businessAcc = false;
-
-        // Begin by pressing the search button
         while (!SCRAPE_STOP) {
-            // set the clipboard to the hashtag, and paste it
-            if (firstRun || resetRun) {
-                getElement(navSearch).click();
-                Thread.sleep(1000);
+            int postCount = 0, following = 0, followers = 0, scrollTimes = 0;
 
-                getElement(inputSearch).click();
-                driver.hideKeyboard();
+            long startTime = System.currentTimeMillis();
+            long lastUpdateTime = System.currentTimeMillis();
+            String userEmail = "", userBioEmail = "", calltag = "", userNumber = "";
+            String feedCurrentUsername = "";
 
-                getElement(searchTagButton).click();
+            boolean firstRun = true;
+            boolean resetRun = false;
+            boolean userEmailFound = false, bioEmailFound = false, contactFound = false, emailFound = false, numberFound = false;
+            boolean businessAcc = false;
 
-                if (h_tag.contains("#"))
-                    getElement(inputSearch).sendKeys(h_tag);
-                else
-                    getElement(inputSearch).sendKeys("#" + h_tag);
+            SCRAPE_RESET = false;
 
-                Thread.sleep(3000);
-                var searchResults = driver.findElementsByClassName("android.widget.TextView");
-                for (var el : searchResults) {
-                    if (((MobileElement) el).getText().equals("#" + h_tag) || ((MobileElement) el).getText().equals(h_tag)) {
-                        ((MobileElement) el).click();
-                        break;
-                    }
-                }
+            while (!SCRAPE_RESET && !SCRAPE_STOP && !(RESET_SCRAPER_TIME < startTime - lastUpdateTime)) {
+                lastUpdateTime = System.currentTimeMillis();
+                if (firstRun) {
 
-                Thread.sleep(6000);
-                getElement(recentPostsButton).click(); // Switch to recent posts instead of being on the top tab
+                    System.out.println("[Notice] Preparing scraping, don't touch anything while the bot is running");
 
-                Thread.sleep(2000);
-                var postsUnderHashtag = driver.findElementsById("com.instagram.android:id/image_button");
-                MobileElement post = (MobileElement) postsUnderHashtag.get(0);
-                post.click(); // Click the first post under the hashtag
+                    getElement(navSearch).click();
+                    Thread.sleep(1000);
 
-            }
+                    getElement(inputSearch).click();
+                    driver.hideKeyboard();
 
-            // Decide which picture to click on
-            while (postCount < max_query) {
-                emailFound = false;
-                numberFound = false;
-                bioEmailFound = false;
-                contactFound = false;
-                businessAcc = false;
+                    getElement(searchTagButton).click();
 
-                Thread.sleep(1000);
-                if (firstRun)
-                    firstRun = false;
-                else if (!firstRun)
-                    scrollFeed();
-
-                List<MobileElement> feedUsernames = (List<MobileElement>) driver.findElementsById("com.instagram.android:id/row_feed_photo_profile_name");
-                Thread.sleep(500);
-                System.out.flush();
-                feedUsernames.forEach((name) -> System.out.printf("[Info] User (%s/%s) in feed: %s\n", feedUsernames.indexOf(name) + 1, feedUsernames.size(), name.getText()));
-
-                if (feedUsernames.size() == 1) {
-                    if (feedCurrentUsername.contains(feedUsernames.get(0).getText())) {
-                        scrollFeed();
-                        continue;
-                    } else {
-                        feedCurrentUsername = feedUsernames.get(0).getText();
-                        feedUsernames.get(0).click();
-                    }
-                } else if (feedUsernames.isEmpty()) {
-                    scrollFeed();
-                    continue;
-                } else if (feedUsernames.size() > 1) {
-                    if (feedCurrentUsername.isEmpty()) {
-                        feedCurrentUsername = feedUsernames.get(0).getText();
-                        feedUsernames.get(0).click();
-                    } else if (feedUsernames.get(0).getText().contains(feedCurrentUsername)) {
-                        feedCurrentUsername = feedUsernames.get(1).getText();
-                        feedUsernames.get(1).click();
-                    } else {
-                        feedCurrentUsername = feedUsernames.get(0).getText();
-                        feedUsernames.get(0).click();
-                    }
-                }
-
-                Thread.sleep(500);
-                calltag = getElement(userCalltag).getText();
-
-                System.out.printf("\n[Info] Viewing user: %s\n", calltag);
-
-                followers = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowers).getText()).intValue();
-                following = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowing).getText()).intValue();
-
-                Thread.sleep(500);
-                MobileElement bio = null;
-                try {
-                    bio = getElement(userBio);
-
-                    System.out.println("[Info] Bio found");
-                    if (bio.getText().contains("… more") || bio.getText().contains("... more")) {
-                        TouchAction bioAction = new TouchAction(driver);
-                        System.out.printf("[Action] Expanding bio\n");
-                        bioAction.press(PointOption.point(bio.getLocation().x, bio.getLocation().y));
-                        bioAction.release().perform();
-                    }
-
-                    Thread.sleep(500);
-                    Matcher matcher = Pattern.compile("[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,6}").matcher(bio.getText());
-                    while (matcher.find()) {
-                        userBioEmail = matcher.group();
-                        bioEmailFound = true;
-                    }
-
-                    if (bioEmailFound)
-                        System.out.printf("[Success] Email in bio found %s\n", userBioEmail);
-
-                } catch (Exception e) {
-                    System.out.println("[Warning] No bio found");
-                }
-
-                Thread.sleep(500);
-                try {
-                    MobileElement contactButton = null;
-                    Thread.sleep(500);
-                    List<MobileElement> widgetButtons = driver.findElementsByClassName("android.widget.Button");
-                    for (MobileElement widget : widgetButtons ) {
-                        if (widget.getText().contains("Contact"))
-                            contactButton = widget;
-                        else {
-                            contactFound = false;
-                            continue;
-                        }
-                    }
-
-                    contactButton.click();
-                    contactFound = true;
-                    Thread.sleep(500);
-                    try {
-                        List<MobileElement> nestedOptions = driver.findElementsById(contactNestedOption[0]);
-
-                        for (MobileElement option : nestedOptions) {
-                            if (option.getText().contains("@")) {
-                                emailFound = true;
-                                businessAcc = true;
-                                userEmail = option.getText();
-                                System.out.printf("[Success] Email found in contact (%s): %s\n", calltag, userEmail);
-                            }
-
-                            if (option.getText().startsWith(countryCode) || option.getText().startsWith(numberBeginning)) {
-                                numberFound = true;
-                                businessAcc = true;
-                                userNumber = option.getText();
-                                System.out.printf("[Success] Number found in contact (%s): %s\n", calltag, userNumber);
-                            } else if (!option.getText().startsWith(countryCode) || !option.getText().startsWith(numberBeginning))
-                                System.out.println("[Warning] Phone number doesn't match desired country code, skipping");
-                        }
-                    } catch (Exception e) {
-                        emailFound = false;
-                    }
+                    if (h_tag.contains("#"))
+                        getElement(inputSearch).sendKeys(h_tag);
+                    else
+                        getElement(inputSearch).sendKeys("#" + h_tag);
 
                     Thread.sleep(1000);
-                    driver.navigate().back();
-                } catch (Exception e) {
-                    contactFound = false;
+                    var searchResults = driver.findElementsByClassName("android.widget.TextView");
+                    for (var el : searchResults) {
+                        if (((MobileElement) el).getText().equals("#" + h_tag) || ((MobileElement) el).getText().equals(h_tag)) {
+                            ((MobileElement) el).click();
+                            break;
+                        }
+                    }
+
+                    Thread.sleep(4000);
+                    getElement(recentPostsButton).click(); // Switch to recent posts instead of being on the top tab
+
+                    Thread.sleep(1000);
+                    var postsUnderHashtag = driver.findElementsById("com.instagram.android:id/image_button");
+                    MobileElement post = (MobileElement) postsUnderHashtag.get(0);
+                    post.click(); // Click the first post under the hashtag
                 }
 
-                if (!contactFound) {
+                // Decide which picture to click on
+                while (postCount < max_query && !SCRAPE_RESET) {
+                    emailFound = false;
+                    numberFound = false;
+                    bioEmailFound = false;
+                    contactFound = false;
+                    businessAcc = false;
+
+                    Thread.sleep(1000);
+                    if (firstRun)
+                        firstRun = false;
+                    else if (!firstRun) {
+                        scrollFeed();
+                        scrollTimes++;
+                    }
+
+                    if (scrollTimes > 5)
+                        SCRAPE_RESET = true;
+
+                    List<MobileElement> feedUsernames = (List<MobileElement>) driver.findElementsById("com.instagram.android:id/row_feed_photo_profile_name");
+                    Thread.sleep(500);
+                    System.out.flush();
+                    feedUsernames.forEach((name) -> System.out.printf("[Info] User (%s/%s) in feed: %s\n", feedUsernames.indexOf(name) + 1, feedUsernames.size(), name.getText()));
+
+                    if (feedUsernames.size() == 1) {
+                        if (feedCurrentUsername.contains(feedUsernames.get(0).getText())) {
+                            scrollFeed();
+                            scrollTimes++;
+                            continue;
+                        } else {
+                            feedCurrentUsername = feedUsernames.get(0).getText();
+                            feedUsernames.get(0).click();
+                            scrollTimes = 0;
+                        }
+                    } else if (feedUsernames.isEmpty()) {
+                        scrollFeed();
+                        scrollTimes++;
+                        continue;
+                    } else if (feedUsernames.size() > 1) {
+                        if (feedCurrentUsername.isEmpty()) {
+                            feedCurrentUsername = feedUsernames.get(0).getText();
+                            feedUsernames.get(0).click();
+                            scrollTimes = 0;
+
+                        } else if (feedUsernames.get(0).getText().contains(feedCurrentUsername)) {
+                            feedCurrentUsername = feedUsernames.get(1).getText();
+                            feedUsernames.get(1).click();
+                            scrollTimes = 0;
+
+                        } else {
+                            feedCurrentUsername = feedUsernames.get(0).getText();
+                            feedUsernames.get(0).click();
+                            scrollTimes = 0;
+
+                        }
+                    }
+
+                    Thread.sleep(500);
+                    calltag = getElement(userCalltag).getText();
+
+                    System.out.printf("\n[Info] Viewing user: %s\n", calltag);
+
+                    Thread.sleep(500);
+                    followers = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowers).getText()).intValue();
+                    following = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowing).getText()).intValue();
+
+                    Thread.sleep(500);
+                    MobileElement bio = null;
                     try {
-                        MobileElement eButton = null;
+                        bio = getElement(userBio);
+                        String tempPageEmail = "";
+
+                        System.out.println("[Info] Bio found");
+                        if (bio.getText().contains("… more") || bio.getText().contains("... more")) {
+                            TouchAction bioAction = new TouchAction(driver);
+                            System.out.printf("[Action] Expanding bio\n");
+                            bioAction.press(PointOption.point((driver.manage().window().getSize().width - 60), bio.getLocation().y));
+                            bioAction.release().perform();
+                        }
+
+                        Thread.sleep(500);
+                        Matcher matcher = Pattern.compile("[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,6}").matcher(bio.getText());
+                        while (matcher.find()) {
+                            tempPageEmail = matcher.group();
+                            bioEmailFound = true;
+                        }
+
+                        if (bioEmailFound) {
+                            if (tempPageEmail.toLowerCase().contains("support") || tempPageEmail.toLowerCase().contains("help") || tempPageEmail.toLowerCase().contains("info") || tempPageEmail.toLowerCase().contains("hello")) {
+                                System.out.println("[Warning] Email is support email, skipping");
+                                bioEmailFound = false;
+                            } else {
+                                userBioEmail = tempPageEmail.replace("<", "");
+                                userBioEmail = userBioEmail.replace(">", "");
+                                businessAcc = true;
+
+                                System.out.printf("[Success] Email found in bio (%s): %s\n", calltag, userBioEmail);
+                            }
+                        }
+
+                    } catch (Exception e) {
+                        System.out.println("[Warning] No bio found");
+                        Thread.sleep(500);
+                    }
+
+                    Thread.sleep(500);
+                    try {
+                        MobileElement contactButton = null;
                         Thread.sleep(500);
                         List<MobileElement> widgetButtons = driver.findElementsByClassName("android.widget.Button");
                         for (MobileElement widget : widgetButtons ) {
-                            if (widget.getText().contains("Email"))
-                                eButton = widget;
+                            if (widget.getText().contains("Contact"))
+                                contactButton = widget;
                             else {
-                                emailFound = false;
+                                contactFound = false;
                                 continue;
                             }
                         }
 
-                        eButton.click();
-                        Thread.sleep(1000);
-                        String tempPageEmail = getElement(androidEmail).getText();
+                        contactButton.click();
+                        contactFound = true;
+                        Thread.sleep(500);
+                        try {
+                            List<MobileElement> nestedOptions = driver.findElementsById(contactNestedOption[0]);
+                            boolean dismatchingCC = false;
 
-                        // Move down to export thingy
-                        if (tempPageEmail.toLowerCase().contains("support") || tempPageEmail.toLowerCase().contains("help") || tempPageEmail.toLowerCase().contains("hello")) {
-                            System.out.println("[Warning] Email is support email, skipping");
+                            for (MobileElement option : nestedOptions) {
+                                if (option.getText().contains("@")) {
+                                    emailFound = true;
+                                    businessAcc = true;
+                                    userEmail = option.getText();
+                                    System.out.printf("[Success] Email found in contact (%s): %s\n", calltag, userEmail);
+                                } else if (option.getText().startsWith(countryCode) || option.getText().startsWith(numberBeginning)) {
+                                    numberFound = true;
+                                    businessAcc = true;
+                                    userNumber = option.getText();
+                                    System.out.printf("[Success] Number found in contact (%s): %s\n", calltag, userNumber);
+                                } else if (!option.getText().startsWith(countryCode) || !option.getText().startsWith(numberBeginning) && !option.getText().contains("@"))
+                                    dismatchingCC = true;
+                            }
+                            if (dismatchingCC)
+                                System.out.printf("[Warning] Phone number doesn't match desired country code (%s), skipping\n", countryCode);
+                        } catch (Exception e) {
                             emailFound = false;
-                        } else {
-                            userEmail = tempPageEmail.replace("<", "");
-                            userEmail = userEmail.replace(">", "");
-                            emailFound = true;
-                            businessAcc = true;
-
-                            System.out.printf("[Success] Email found in contact (%s): %s\n", calltag, userEmail);
                         }
 
                         Thread.sleep(1000);
-                        driver.hideKeyboard();
                         driver.navigate().back();
                     } catch (Exception e) {
-                        emailFound = false;
+                        contactFound = false;
                     }
-                }
 
-                if (numberFound || bioEmailFound || emailFound) {
-                    String tmpEmail = "N/A";
-                    if (!userEmail.isEmpty())
-                        tmpEmail = userEmail;
-                    else if (!userBioEmail.isEmpty()) {
-                        if (userEmail.isEmpty())
-                            tmpEmail = userBioEmail;
-                        else
+                    if (!contactFound) {
+                        try {
+                            MobileElement eButton = null;
+                            Thread.sleep(500);
+                            List<MobileElement> widgetButtons = driver.findElementsByClassName("android.widget.Button");
+                            for (MobileElement widget : widgetButtons ) {
+                                if (widget.getText().contains("Email"))
+                                    eButton = widget;
+                                else {
+                                    emailFound = false;
+                                    continue;
+                                }
+                            }
+
+                            eButton.click();
+                            Thread.sleep(1000);
+                            String tempPageEmail = getElement(androidEmail).getText();
+
+                            // Move down to export thingy
+                            if (tempPageEmail.toLowerCase().contains("support") || tempPageEmail.toLowerCase().contains("help") || tempPageEmail.toLowerCase().contains("info") || tempPageEmail.toLowerCase().contains("hello")) {
+                                System.out.println("[Warning] Email is support email, skipping");
+                                emailFound = false;
+                            } else {
+                                userEmail = tempPageEmail.replace("<", "");
+                                userEmail = userEmail.replace(">", "");
+                                emailFound = true;
+                                businessAcc = true;
+
+                                System.out.printf("[Success] Email found in contact (%s): %s\n", calltag, userEmail);
+                            }
+
+                            Thread.sleep(1000);
+                            driver.hideKeyboard();
+                            driver.navigate().back();
+                        } catch (Exception e) {
+                            emailFound = false;
+                        }
+                    }
+
+                    if (numberFound || bioEmailFound || emailFound) {
+                        String tmpEmail = "N/A";
+                        if (!userEmail.isEmpty())
                             tmpEmail = userEmail;
+                        else if (!userBioEmail.isEmpty()) {
+                            if (userEmail.isEmpty())
+                                tmpEmail = userBioEmail;
+                            else
+                                tmpEmail = userEmail;
+                        }
+                        exportUserCredentials(h_tag, calltag, followers, following, businessAcc, tmpEmail, userNumber.isEmpty() ? "N/A" : userNumber);
+                        Thread.sleep(1000);
+                    } else {
+                        System.out.println("[Warning] Neither number or email found");
                     }
-                    exportUserCredentials(h_tag, calltag, followers, following, businessAcc, tmpEmail, userNumber.isEmpty() ? "N/A" : userNumber);
-                    Thread.sleep(1000);
-                } else {
-                    System.out.println("[Warning] Neither number or email found");
+
+                    Thread.sleep(2000);
+                    driver.navigate().back();
+                    postCount++;
                 }
 
-
+                System.out.print("\n[Error] An error has been identified, the bot will restart");
+                System.out.print(".");
                 Thread.sleep(2000);
-                driver.navigate().back();
-                postCount++;
-            }
+                System.out.print(".");
+                Thread.sleep(2000);
+                System.out.print(".\n\n");
+                Thread.sleep(1000);
 
-            // Max Query Reached
-            System.out.println("[Info] Bot stopped, max query reached");
-            SCRAPE_STOP = true;
+                // At some point transfer the current data to restart
+            }
         }
-
-        // resetScraper(); here we can check if to continue or close
-
-        // every time loops runs, check if should reset column and row counter (like every 2 hours maybe)
-        // Also logic around how often to randomize certain times depending on random tick speed (higher risk of slow interactions)
-        // Maybe like do a random number 0 - random tick speed and add to the intervals between clicks
-
-    }
-
-    public static void main(String args[]) throws IOException, InterruptedException, ParseException {
-
-        System.out.println("### Program Started ###\n");
-
-        // Variables
-        UScraper scraper = new UScraper(true);
-
-        int searchMode, maxSearches, waitInterval, resetInterval, randomTickSens;
-        String hashtag, username, fileLocation;
-        boolean recentPosts;
-
-        if (args.length > 0) {
-            if (args[0].equals("--help") || args[0].equals("help") || args[0].equals("-help") || args[0].equals("-h")) {
-                System.out.println("Help info");
-                return;
-            }
-
-            // Parse first input
-            try {
-                searchMode = parseInt(args[0]);
-            } catch (Exception e) {
-                System.out.println("[Warning] Invalid parameter " + e);
-                System.out.println("Help info");
-                return;
-            }
-
-            switch (searchMode) {
-                case 1:
-                    System.out.println("[Info] Search Mode: Hashtag");
-                    // scraper.emailAndNumberSearch();
-                    break;
-                default:
-                    System.out.println("[Warning] Invalid mode");
-                    break;
-            }
-        } else {
-            // System.out.println("Help menu");
-        }
-
-        Thread.sleep(4000);
-        // scraper.testActions("scroll");
-        scraper.emailAndNumberSearch("A", "kök", "+46", "07", 1000, 2, 20000, 100, 3, 6, true);
-        // scraper.appExit();
     }
 }
