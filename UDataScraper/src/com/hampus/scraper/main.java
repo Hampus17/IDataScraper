@@ -8,7 +8,7 @@ import static java.lang.Integer.parseInt;
 public class main {
     public static void main(String args[]) throws IOException, InterruptedException, ParseException {
 
-        System.out.println("### Program Started ###\n");
+        System.out.println("### Program Started ###");
         System.out.println("### Bot starting... ###\n");
 
         // Variables
@@ -46,9 +46,23 @@ public class main {
             // System.out.println("Help menu");
         }
 
-        Thread.sleep(4000);
-        // scraper.testActions("scroll");
-        scraper.emailAndNumberSearch("A", "pysseltips", "+46", "07", 1000, 2, 20000, 100, 3, 6, true);
+        Thread.sleep(2000);
+
+        boolean SCRAPING_INPROGRESS = true;
+        while (SCRAPING_INPROGRESS) {
+            try {
+                scraper.emailAndNumberSearch("pysseltips", "+46", "07", 1000, 100000, 10, 10000, 3);
+            } catch (Exception e) {
+                System.out.println("[Error] An error has been identified, the bot will restart");
+                e.printStackTrace();
+                SCRAPING_INPROGRESS = true;
+                scraper = new UScraper();
+                continue;
+            }
+
+            SCRAPING_INPROGRESS = false;
+        }
+
         // scraper.appExit();
     }
 }

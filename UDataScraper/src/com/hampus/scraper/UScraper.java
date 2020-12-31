@@ -6,6 +6,8 @@ import org.openqa.selenium.remote.DesiredCapabilities;
 import java.io.*;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.text.NumberFormat;
 import java.text.ParseException;
 import java.time.Duration;
@@ -37,7 +39,6 @@ public class UScraper {
     private String[] userCalltag = {"com.instagram.android:id/action_bar_title", "Id"};
     private String[] userFollowers = {"com.instagram.android:id/row_profile_header_textview_followers_count", "Id"};
     private String[] userFollowing = {"com.instagram.android:id/row_profile_header_textview_following_count", "Id"};
-    private String[] businessCategory = {"com.instagram.android:id/profile_header_business_category", "Id"};
     private String[] androidEmail = {"com.google.android.gm:id/to", "Id"};
     private String[] androidNumber = {"com.android.dialer:id/digits", "Id"};
 
@@ -85,65 +86,69 @@ public class UScraper {
 
     // TODO after some time create copy of the updating data file from scraper incase error would occur
     private void backupUserData() {
-
+        // Check for duplicates and remove one of those as well
     }
 
-    private void exportUserCredentials(String hashtag, String calltag, int followers, int following, boolean is_business, String email, String number) {
+    private void exportUserCredentials(String hashtag, String calltag, int followers, int following, String email, String number, int postCount) throws IOException {
 
-        System.out.println("[Info] Exporting credentials... ");
-        try (FileWriter writer = new FileWriter(("exported_hashtag.csv"), true)) {
+        hashtag = hashtag.replaceAll("\\s+","");
+        hashtag = hashtag.replace("#", "");
 
-            StringBuilder sb = new StringBuilder();
-            sb.append('\n');
+        String filePath = "H:" + File.separator + "ExportedData" + File.separator;
+        String fileName = hashtag + "_export.csv";
+        File file = null;
 
-            hashtag = hashtag.replaceAll("\\s+","");
-            hashtag = hashtag.replace("#", "");
+        StringBuilder sb = new StringBuilder();
 
-            sb.append(hashtag);
-            sb.append(',');
-            sb.append(calltag.replaceAll("\\s+",""));
-            sb.append(',');
-            sb.append(email.replaceAll("\\s+",""));
-            sb.append(',');
-            if (!number.equals("0"))
-                sb.append(number.replaceAll("\\s+",""));
-            else
-                sb.append("N/A");
-            sb.append(',');
-            sb.append(followers);
-            sb.append(',');
-            sb.append(following);
-            sb.append(',');
-            sb.append(is_business);
+        File dir = new File(filePath);
+        dir.mkdirs();
+        file = new File(dir, fileName);
+        file.createNewFile();
 
-            writer.write(sb.toString());
+        String firstLine = "";
 
-            System.out.println("[Info] Finished exporting credentials");
-
-        } catch (FileNotFoundException e) {
-            System.out.println(e.getMessage());
-        } catch (IOException e) {
-            e.printStackTrace();
+        try {
+            firstLine = Files.readAllLines(Path.of(file.getPath())).get(0);
+        } catch (Exception e) {
+            firstLine = "FILE_EMPTY";
         }
 
+        // Check if first line includes datas
+        if (postCount == 1 && firstLine.contains("FILE_EMPTY"))
+            sb.append("Username,Email,Number,Followers,Following\n");
+        else if (firstLine.contains("Username,Email,Number,Followers,Following"))
+            sb.append('\n');
+
+        sb.append(calltag.replaceAll("\\s+",""));
+        sb.append(',');
+        sb.append(email.replaceAll("\\s+",""));
+        sb.append(',');
+        sb.append(number.replaceAll("\\s+",""));
+        sb.append(',');
+        sb.append(followers);
+        sb.append(',');
+        sb.append(following);
+
+        Files.writeString(Path.of(file.getPath()), sb.toString(), StandardCharsets.UTF_8, StandardOpenOption.APPEND);
     }
 
     private void scrollFeed() {
         System.out.println("\n[Action] Scrolling feed...");
         (new TouchAction(driver)).press(PointOption.point(536, 1875))
                 .waitAction(WaitOptions.waitOptions(Duration.ofMillis(500)))
-                .moveTo(PointOption.point(536, 1350))
+                .moveTo(PointOption.point(536, 1300))
                 .release()
                 .perform();
     }
 
-    public void emailAndNumberSearch(String prefix, String h_tag, String countryCode, String numberBeginning, int max_query, int query_rate, int max_followers, int min_followers,
-                                     int min_posts, int random_tick_speed, boolean recent_posts) throws InterruptedException, ParseException, IOException {
+    public void emailAndNumberSearch(String h_tag, String countryCode, String numberBeginning, int max_query, int max_followers, int min_followers,
+                                     int max_following, int random_tick_speed) throws InterruptedException, ParseException, IOException {
 
-        System.out.printf("Bot running  |  Search Mode: Hashtag  (%s)  |  Max Query: %s\n\n", h_tag, max_query);
+        System.out.printf("Bot running search mode: Hashtag (#%s)" +
+                "\nMax Query: %s  |  Max Followers: %s  |  Min Followers: %s  | Max Following: %s\n\n", h_tag, max_query, max_followers, min_followers, max_following);
 
         while (!SCRAPE_STOP) {
-            int postCount = 0, following = 0, followers = 0, scrollTimes = 0;
+            int postCount = 1, following = 0, followers = 0, scrollTimes = 0;
 
             long startTime = System.currentTimeMillis();
             long lastUpdateTime = System.currentTimeMillis();
@@ -151,9 +156,7 @@ public class UScraper {
             String feedCurrentUsername = "";
 
             boolean firstRun = true;
-            boolean resetRun = false;
             boolean userEmailFound = false, bioEmailFound = false, contactFound = false, emailFound = false, numberFound = false;
-            boolean businessAcc = false;
 
             SCRAPE_RESET = false;
 
@@ -163,14 +166,17 @@ public class UScraper {
 
                     System.out.println("[Notice] Preparing scraping, don't touch anything while the bot is running");
 
+                    Thread.sleep(500);
                     getElement(navSearch).click();
-                    Thread.sleep(1000);
 
+                    Thread.sleep(500);
                     getElement(inputSearch).click();
                     driver.hideKeyboard();
 
+                    Thread.sleep(500);
                     getElement(searchTagButton).click();
 
+                    Thread.sleep(500);
                     if (h_tag.contains("#"))
                         getElement(inputSearch).sendKeys(h_tag);
                     else
@@ -185,7 +191,7 @@ public class UScraper {
                         }
                     }
 
-                    Thread.sleep(4000);
+                    Thread.sleep(7000);
                     getElement(recentPostsButton).click(); // Switch to recent posts instead of being on the top tab
 
                     Thread.sleep(1000);
@@ -200,23 +206,26 @@ public class UScraper {
                     numberFound = false;
                     bioEmailFound = false;
                     contactFound = false;
-                    businessAcc = false;
 
-                    Thread.sleep(1000);
+                    userBioEmail = "";
+                    userEmail = "";
+                    userNumber = "";
+
                     if (firstRun)
                         firstRun = false;
                     else if (!firstRun) {
+                        Thread.sleep(2000);
                         scrollFeed();
                         scrollTimes++;
                     }
 
-                    if (scrollTimes > 5)
+                    if (scrollTimes == 4)
+                        System.out.println("[Warning] An error have possibly occurred, will retry 3 times");
+                    else if (scrollTimes == 7)
                         SCRAPE_RESET = true;
 
+                    Thread.sleep(2000);
                     List<MobileElement> feedUsernames = (List<MobileElement>) driver.findElementsById("com.instagram.android:id/row_feed_photo_profile_name");
-                    Thread.sleep(500);
-                    System.out.flush();
-                    feedUsernames.forEach((name) -> System.out.printf("[Info] User (%s/%s) in feed: %s\n", feedUsernames.indexOf(name) + 1, feedUsernames.size(), name.getText()));
 
                     if (feedUsernames.size() == 1) {
                         if (feedCurrentUsername.contains(feedUsernames.get(0).getText())) {
@@ -247,34 +256,43 @@ public class UScraper {
                             feedCurrentUsername = feedUsernames.get(0).getText();
                             feedUsernames.get(0).click();
                             scrollTimes = 0;
-
                         }
                     }
 
-                    Thread.sleep(500);
+                    Thread.sleep(1000);
                     calltag = getElement(userCalltag).getText();
 
-                    System.out.printf("\n[Info] Viewing user: %s\n", calltag);
+                    // Check if user has a link in description, and probably assume that it is a business or support profile
+                    Thread.sleep(1000);
+                    if (getElement(userFollowers).getText().toLowerCase().contains("k"))
+                        followers = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowers).getText()).intValue() * 1000;
+                    else if (getElement(userFollowers).getText().toLowerCase().contains("m"))
+                        followers = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowers).getText()).intValue() * 1000000;
+                    else
+                        followers = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowers).getText()).intValue();
 
-                    Thread.sleep(500);
-                    followers = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowers).getText()).intValue();
-                    following = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowing).getText()).intValue();
+                    if (getElement(userFollowing).getText().toLowerCase().contains("k"))
+                        following = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowing).getText()).intValue() * 1000;
+                    else if (getElement(userFollowers).getText().toLowerCase().contains("m"))
+                        following = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowing).getText()).intValue() * 1000000;
+                    else
+                        following = NumberFormat.getNumberInstance(Locale.US).parse(getElement(userFollowing).getText()).intValue();
 
-                    Thread.sleep(500);
+                    System.out.printf("\n[Info] User: %s (Followers: %s | Following: %s)\n", calltag, followers, following);
+
+
+                    Thread.sleep(1000);
                     MobileElement bio = null;
                     try {
                         bio = getElement(userBio);
                         String tempPageEmail = "";
 
-                        System.out.println("[Info] Bio found");
                         if (bio.getText().contains("… more") || bio.getText().contains("... more")) {
                             TouchAction bioAction = new TouchAction(driver);
-                            System.out.printf("[Action] Expanding bio\n");
                             bioAction.press(PointOption.point((driver.manage().window().getSize().width - 60), bio.getLocation().y));
                             bioAction.release().perform();
                         }
 
-                        Thread.sleep(500);
                         Matcher matcher = Pattern.compile("[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,6}").matcher(bio.getText());
                         while (matcher.find()) {
                             tempPageEmail = matcher.group();
@@ -288,21 +306,17 @@ public class UScraper {
                             } else {
                                 userBioEmail = tempPageEmail.replace("<", "");
                                 userBioEmail = userBioEmail.replace(">", "");
-                                businessAcc = true;
 
                                 System.out.printf("[Success] Email found in bio (%s): %s\n", calltag, userBioEmail);
                             }
                         }
 
                     } catch (Exception e) {
-                        System.out.println("[Warning] No bio found");
-                        Thread.sleep(500);
                     }
 
-                    Thread.sleep(500);
+                    Thread.sleep(1000);
                     try {
                         MobileElement contactButton = null;
-                        Thread.sleep(500);
                         List<MobileElement> widgetButtons = driver.findElementsByClassName("android.widget.Button");
                         for (MobileElement widget : widgetButtons ) {
                             if (widget.getText().contains("Contact"))
@@ -315,27 +329,39 @@ public class UScraper {
 
                         contactButton.click();
                         contactFound = true;
-                        Thread.sleep(500);
+
+                        Thread.sleep(1000);
                         try {
                             List<MobileElement> nestedOptions = driver.findElementsById(contactNestedOption[0]);
                             boolean dismatchingCC = false;
+                            boolean supportEmail = false;
 
                             for (MobileElement option : nestedOptions) {
-                                if (option.getText().contains("@")) {
-                                    emailFound = true;
-                                    businessAcc = true;
+
+                                // Move down to export thingy
+                                if (option.getText().contains("support") || option.getText().contains("help") || option.getText().contains("info") || option.getText().contains("hello")) {
+                                    supportEmail = true;
+                                    emailFound = false;
+                                } else if (option.getText().contains("@")) {
                                     userEmail = option.getText();
+                                    emailFound = true;
                                     System.out.printf("[Success] Email found in contact (%s): %s\n", calltag, userEmail);
-                                } else if (option.getText().startsWith(countryCode) || option.getText().startsWith(numberBeginning)) {
+                                }
+
+                                if (option.getText().startsWith(countryCode) || option.getText().startsWith(numberBeginning)) {
                                     numberFound = true;
-                                    businessAcc = true;
                                     userNumber = option.getText();
                                     System.out.printf("[Success] Number found in contact (%s): %s\n", calltag, userNumber);
-                                } else if (!option.getText().startsWith(countryCode) || !option.getText().startsWith(numberBeginning) && !option.getText().contains("@"))
+                                } else if (!option.getText().startsWith(countryCode) && !option.getText().contains("@") || !option.getText().startsWith(numberBeginning) && !option.getText().contains("@"))
                                     dismatchingCC = true;
                             }
+
                             if (dismatchingCC)
                                 System.out.printf("[Warning] Phone number doesn't match desired country code (%s), skipping\n", countryCode);
+
+                            if (supportEmail)
+                                System.out.printf("[Warning] Email is support email, skipping\n");
+
                         } catch (Exception e) {
                             emailFound = false;
                         }
@@ -346,10 +372,10 @@ public class UScraper {
                         contactFound = false;
                     }
 
+                    Thread.sleep(1000);
                     if (!contactFound) {
                         try {
                             MobileElement eButton = null;
-                            Thread.sleep(500);
                             List<MobileElement> widgetButtons = driver.findElementsByClassName("android.widget.Button");
                             for (MobileElement widget : widgetButtons ) {
                                 if (widget.getText().contains("Email"))
@@ -361,7 +387,7 @@ public class UScraper {
                             }
 
                             eButton.click();
-                            Thread.sleep(1000);
+                            Thread.sleep(2000);
                             String tempPageEmail = getElement(androidEmail).getText();
 
                             // Move down to export thingy
@@ -371,13 +397,14 @@ public class UScraper {
                             } else {
                                 userEmail = tempPageEmail.replace("<", "");
                                 userEmail = userEmail.replace(">", "");
+                                userEmail = userEmail.replace(",", " ").trim();
+
                                 emailFound = true;
-                                businessAcc = true;
 
                                 System.out.printf("[Success] Email found in contact (%s): %s\n", calltag, userEmail);
                             }
 
-                            Thread.sleep(1000);
+                            Thread.sleep(2000);
                             driver.hideKeyboard();
                             driver.navigate().back();
                         } catch (Exception e) {
@@ -385,8 +412,11 @@ public class UScraper {
                         }
                     }
 
+                    Thread.sleep(1000);
                     if (numberFound || bioEmailFound || emailFound) {
                         String tmpEmail = "N/A";
+                        userNumber = userNumber.isBlank() ? "N/A" : userNumber;
+
                         if (!userEmail.isEmpty())
                             tmpEmail = userEmail;
                         else if (!userBioEmail.isEmpty()) {
@@ -395,15 +425,19 @@ public class UScraper {
                             else
                                 tmpEmail = userEmail;
                         }
-                        exportUserCredentials(h_tag, calltag, followers, following, businessAcc, tmpEmail, userNumber.isEmpty() ? "N/A" : userNumber);
-                        Thread.sleep(1000);
+
+
+                        if (followers > min_followers && followers < max_followers && following < max_following) {
+                            exportUserCredentials(h_tag, calltag, followers, following, tmpEmail, userNumber, postCount);
+                            postCount++;
+                        } else
+                            System.out.println("[Warning] User doesn't match desired criteria(s), skipping");
                     } else {
-                        System.out.println("[Warning] Neither number or email found");
+                        System.out.println("[Info] No number or email found");
                     }
 
                     Thread.sleep(2000);
                     driver.navigate().back();
-                    postCount++;
                 }
 
                 System.out.print("\n[Error] An error has been identified, the bot will restart");
@@ -414,7 +448,9 @@ public class UScraper {
                 System.out.print(".\n\n");
                 Thread.sleep(1000);
 
-                // At some point transfer the current data to restart
+                if (SCRAPE_RESET) {
+                    // At some point transfer the current data to restart
+                }
             }
         }
     }
